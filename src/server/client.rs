@@ -40,7 +40,10 @@ impl <'a> Session<'a> {
             },
             Err(_) => 0
         };
-        /* The below wont work, because the value type held by the results is not the same throughout the chain.
+        /*
+            The above code isn't all to elegant ^^ and chaining would be nicer.
+            The below wont work, because the value type held by the results is not the same throughout the chain.
+
         let msg_size: usize = match self.stream.read(buffer)
             .and_then(|| { String::from_utf8(buffer.clone()) })
             .and_then(|msg| { msg.parse::<usize>() })
