@@ -1,5 +1,5 @@
 
-use std::{io};
+use std::io::{Error};
 use collections::string::FromUtf8Error;
 use std::io::prelude::*;
 use std::net::TcpStream;
@@ -12,26 +12,44 @@ pub struct Session<'a> {
 
 impl <'a> Session<'a> {
     pub fn start(&mut self) {
-        match self.read_msg() {
-            Ok(msg) => {
-                match json::from_str(msg.trim()) {
-                    Ok(json) => { self.print_msg(json); },
-                    Err(e) => { println!("Parsing msg did not work: {:?}", e); }
-                }
-            },
-            Err(e) => { println!("Reading msg didnt work: {:?}", e); }
+        loop {
+            match self.read_msg() {
+                Ok(opt) => match opt {
+                    Some(msg) => {
+                        match json::from_str(msg.trim()) {
+                            Ok(json) => { self.print_msg(json); },
+                            Err(e) => { println!("Parsing msg did not work: {:?}", e); }
+                        }
+                    },
+                    None => break
+                },
+                Err(e) => { println!("Reading msg didnt work: {:?}", e); }
+            }
         }
     }
 
-    fn read_msg(&mut self) -> Result<String, ClientErr> {
-        let mut buffer = vec![];
+    fn read_msg(&mut self) -> Result<Option<String>, ClientErr> {
+        let mut buffer = &mut vec![4u8; 4];
+        let msg_size: usize = match self.stream.read(buffer) {
+            Ok(_) => match String::from_utf8(buffer.clone()) {
+                Ok(msg) => match msg.parse::<usize>() {
+                    Ok(i) => i,
+                    Err(_) => 0
+                },
+                Err(_) => 0
+            },
+            Err(_) => 0
+        };
 
-        match self.stream.read_to_end(&mut buffer) {
-            Ok(_) => {
-                return match String::from_utf8(buffer)  {
-                    Ok(s) => Ok(s),
-                    Err(e) => Err(ClientErr::ParseErr(e))
-                }
+        if msg_size == 0 {
+            return Ok(None);
+        }
+
+        let mut buffer = &mut vec![4u8; msg_size];
+        match self.stream.read(buffer) {
+            Ok(_) => match String::from_utf8(buffer.clone()) {
+                Ok(msg) => Ok(Some(msg)),
+                Err(e) => Err(ClientErr::ParseErr(e))
             },
             Err(e) => Err(ClientErr::IoErr(e))
         }
@@ -46,7 +64,7 @@ impl <'a> Session<'a> {
 
 enum ClientErr {
     ParseErr(FromUtf8Error),
-    IoErr(io::Error)
+    IoErr(Error)
 }
 
 impl fmt::Debug for ClientErr {
