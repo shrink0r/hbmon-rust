@@ -31,25 +31,23 @@ impl <'a> Session<'a> {
             Ok(msg) => match msg {
                 Message::Json(json) => {
                     let peer_addr = self.stream.peer_addr().unwrap();
-                    // @todo create an event struct and deserialize the json to it
+                    // @todo deserialize the json to an event struct and send it to the monitor thread
                     println!("Sender: {}\n> {}\n", peer_addr, json);
                     Ok(())
                 },
-                _ => Err(ClientErr::Unknown("Invalid msg format given".to_string()))
+                _ => Err(ClientErr::Unknown("Invalid msg format given to 'handle_next_msg'".to_string()))
             }
         }
     }
 
     fn next_msg(&mut self) -> Result<Message, ClientErr> {
-        let msg_len: usize = match consume(self.stream, 4).and_then(parse_buffer).and_then(to_usize) {
+        match consume(self.stream, 4).and_then(parse_buffer).and_then(to_usize) {
             Ok(msg) => match msg {
-                Message::Length(len) => len,
-                _ => return Err(ClientErr::Unknown("Invalid msg format given to 'next_msg'".to_string()))
+                Message::Length(len) => consume(self.stream, len).and_then(parse_buffer).and_then(to_json),
+                _ => Err(ClientErr::Unknown("Invalid msg format given to 'next_msg'".to_string()))
             },
-            Err(e) => return Err(e)
-        };
-
-        consume(self.stream, msg_len).and_then(parse_buffer).and_then(to_json)
+            Err(e) => Err(e)
+        }
     }
 }
 
@@ -116,8 +114,6 @@ impl fmt::Debug for ClientErr {
             ClientErr::JsonErr(ref e) => e.to_string(),
             ClientErr::Unknown(ref s) => s.to_string()
         };
-        fmt.debug_struct("ClientErr")
-            .field("err", &msg)
-            .finish()
+        fmt.debug_struct("ClientErr").field("err", &msg).finish()
     }
 }
