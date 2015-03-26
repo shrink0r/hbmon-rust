@@ -28,33 +28,28 @@ impl <'a> Session<'a> {
     fn handle_next_msg(&mut self) -> Result<(), ClientErr> {
         match self.next_msg() {
             Err(e) => Err(e),
-            Ok(opt) => match opt {
-                None => Ok(()),
-                Some(json) => {
+            Ok(msg_size) => match msg_size {
+                MsgSize::Json(json) => {
                     let peer_addr = self.stream.peer_addr().unwrap();
+                    // @todo create an event struct and deserialize the json to it
                     println!("Sender: {}\n> {}\n", peer_addr, json);
                     Ok(())
-                }
+                },
+                _ => Err(ClientErr::Unknown("Invalid msg_size format given".to_string()))
             }
         }
     }
 
-    fn next_msg(&mut self) -> Result<Option<Json>, ClientErr> {
+    fn next_msg(&mut self) -> Result<MsgSize, ClientErr> {
         let msg_len: usize = match consume(self.stream, 4).and_then(parse_buffer).and_then(to_usize) {
-            Ok(ref msg_size) => match *msg_size {
+            Ok(msg_size) => match msg_size {
                 MsgSize::Value(size) => size,
-                _ => return Ok(None)
+                _ => return Err(ClientErr::Unknown("Invalid msg_size format given to 'next_msg'".to_string()))
             },
             Err(e) => return Err(e)
         };
 
-        match consume(self.stream, msg_len).and_then(parse_buffer).and_then(to_json) {
-            Ok(ref msg_size) => match *msg_size {
-                MsgSize::Json(ref json) => Ok(Some(json.clone())),
-                _ => return Ok(None)
-            },
-            Err(e) => Err(e)
-        }
+        consume(self.stream, msg_len).and_then(parse_buffer).and_then(to_json)
     }
 }
 
@@ -74,7 +69,7 @@ fn parse_buffer(msg_size: MsgSize) -> Result<MsgSize, ClientErr> {
             Ok(size) => Ok(MsgSize::String(size)),
             Err(e) => Err(ClientErr::ParseErr(e))
         },
-        _ => Err(ClientErr::Unknown("Unexpected msg_size format.".to_string()))
+        _ => Err(ClientErr::Unknown("Unexpected msg_size format given to 'parse_buffer'.".to_string()))
     }
 }
 
@@ -84,7 +79,7 @@ fn to_usize(msg_size: MsgSize) -> Result<MsgSize, ClientErr> {
             Ok(size) => Ok(MsgSize::Value(size)),
             Err(e) => Err(ClientErr::ConvertErr(e))
         },
-        _ => Err(ClientErr::Unknown("Unexpected msg_size format.".to_string()))
+        _ => Err(ClientErr::Unknown("Unexpected msg_size format given to 'to_usize'.".to_string()))
     }
 }
 
@@ -94,7 +89,7 @@ fn to_json(msg_size: MsgSize) -> Result<MsgSize, ClientErr> {
             Ok(json) => Ok(MsgSize::Json(json)),
             Err(e) => Err(ClientErr::JsonErr(e))
         },
-        _ => Err(ClientErr::Unknown("Unexpected msg_size format.".to_string()))
+        _ => Err(ClientErr::Unknown("Unexpected msg_size format given to 'to_json'.".to_string()))
     }
 }
 
