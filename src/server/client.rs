@@ -1,9 +1,11 @@
 
-use std::io::{Error};
 use collections::string::FromUtf8Error;
+use std::num::ParseIntError;
+use std::io::Error;
 use std::io::prelude::*;
 use std::net::TcpStream;
 use serialize::json;
+use serialize::json::{Json, ParserError};
 use std::fmt;
 
 pub struct Session<'a> {
@@ -13,76 +15,113 @@ pub struct Session<'a> {
 impl <'a> Session<'a> {
     pub fn start(&mut self) {
         loop {
-            match self.read_msg() {
-                Ok(opt) => match opt {
-                    Some(msg) => {
-                        match json::from_str(msg.trim()) {
-                            Ok(json) => { self.print_msg(json); },
-                            Err(e) => { println!("Parsing msg did not work: {:?}", e); }
-                        }
-                    },
-                    None => break
-                },
-                Err(e) => { println!("Reading msg didnt work: {:?}", e); }
+            match self.handle_next_msg() {
+                Ok(_) => continue,
+                Err(e) => {
+                    println!("Processing msg didnt work: {:?}", e);
+                    break
+                }
             }
         }
     }
 
-    fn read_msg(&mut self) -> Result<Option<String>, ClientErr> {
-        let mut buffer = &mut vec![4u8; 4];
-        let msg_size: usize = match self.stream.read(buffer) {
-            Ok(_) => match String::from_utf8(buffer.clone()) {
-                Ok(msg) => match msg.parse::<usize>() {
-                    Ok(i) => i,
-                    Err(_) => 0
-                },
-                Err(_) => 0
-            },
-            Err(_) => 0
-        };
-        /*
-            The above code isn't all to elegant ^^ and chaining would be nicer.
-            The below wont work, because the value type held by the results is not the same throughout the chain.
-
-        let msg_size: usize = match self.stream.read(buffer)
-            .and_then(|| { String::from_utf8(buffer.clone()) })
-            .and_then(|msg| { msg.parse::<usize>() })
-        {
-            Ok(i) => i,
-            Err(_) => 0
-        };
-        */
-        if msg_size == 0 {
-            return Ok(None);
-        }
-
-        let mut buffer = &mut vec![4u8; msg_size];
-        match self.stream.read(buffer) {
-            Ok(_) => match String::from_utf8(buffer.clone()) {
-                Ok(msg) => Ok(Some(msg)),
-                Err(e) => Err(ClientErr::ParseErr(e))
-            },
-            Err(e) => Err(ClientErr::IoErr(e))
+    fn handle_next_msg(&mut self) -> Result<(), ClientErr> {
+        match self.next_msg() {
+            Err(e) => Err(e),
+            Ok(opt) => match opt {
+                None => Ok(()),
+                Some(json) => {
+                    let peer_addr = self.stream.peer_addr().unwrap();
+                    println!("Sender: {}\n> {}\n", peer_addr, json);
+                    Ok(())
+                }
+            }
         }
     }
 
-    fn print_msg(&mut self, msg: json::Json) {
-        let peer_addr = self.stream.peer_addr().unwrap();
+    fn next_msg(&mut self) -> Result<Option<Json>, ClientErr> {
+        let msg_len: usize = match consume(self.stream, 4).and_then(parse_buffer).and_then(to_usize) {
+            Ok(ref msg_size) => match *msg_size {
+                MsgSize::Value(size) => size,
+                _ => return Ok(None)
+            },
+            Err(e) => return Err(e)
+        };
 
-        println!("Sender: {}\n> {}\n", peer_addr, msg);
+        match consume(self.stream, msg_len).and_then(parse_buffer).and_then(to_json) {
+            Ok(ref msg_size) => match *msg_size {
+                MsgSize::Json(ref json) => Ok(Some(json.clone())),
+                _ => return Ok(None)
+            },
+            Err(e) => Err(e)
+        }
     }
 }
 
+fn consume(stream: &mut TcpStream, byte_count: usize) -> Result<MsgSize, ClientErr> {
+    let mut buffer = vec![4u8; byte_count];
+    match stream.read(&mut buffer) {
+        Ok(_) => {
+            Ok(MsgSize::Buffer(Box::new(buffer)))
+        },
+        Err(e) => Err(ClientErr::IoErr(e))
+    }
+}
+
+fn parse_buffer(msg_size: MsgSize) -> Result<MsgSize, ClientErr> {
+    match msg_size {
+        MsgSize::Buffer(ref vec) => match String::from_utf8(*vec.clone()) {
+            Ok(size) => Ok(MsgSize::String(size)),
+            Err(e) => Err(ClientErr::ParseErr(e))
+        },
+        _ => Err(ClientErr::Unknown("Unexpected msg_size format.".to_string()))
+    }
+}
+
+fn to_usize(msg_size: MsgSize) -> Result<MsgSize, ClientErr> {
+    match msg_size {
+        MsgSize::String(s) => match s.parse::<usize>() {
+            Ok(size) => Ok(MsgSize::Value(size)),
+            Err(e) => Err(ClientErr::ConvertErr(e))
+        },
+        _ => Err(ClientErr::Unknown("Unexpected msg_size format.".to_string()))
+    }
+}
+
+fn to_json(msg_size: MsgSize) -> Result<MsgSize, ClientErr> {
+    match msg_size {
+        MsgSize::String(s) => match json::from_str(s.trim()) {
+            Ok(json) => Ok(MsgSize::Json(json)),
+            Err(e) => Err(ClientErr::JsonErr(e))
+        },
+        _ => Err(ClientErr::Unknown("Unexpected msg_size format.".to_string()))
+    }
+}
+
+#[derive(Debug)]
+enum MsgSize {
+    Buffer(Box<Vec<u8>>),
+    String(String),
+    Value(usize),
+    Json(Json)
+}
+
 enum ClientErr {
+    Unknown(String),
     ParseErr(FromUtf8Error),
-    IoErr(Error)
+    ConvertErr(ParseIntError),
+    IoErr(Error),
+    JsonErr(ParserError)
 }
 
 impl fmt::Debug for ClientErr {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         let msg = match *self {
             ClientErr::ParseErr(ref e) => e.to_string(),
-            ClientErr::IoErr(ref e) => e.to_string()
+            ClientErr::IoErr(ref e) => e.to_string(),
+            ClientErr::ConvertErr(ref e) => e.to_string(),
+            ClientErr::JsonErr(ref e) => e.to_string(),
+            ClientErr::Unknown(ref s) => s.to_string()
         };
         fmt.debug_struct("ClientErr")
             .field("err", &msg)
