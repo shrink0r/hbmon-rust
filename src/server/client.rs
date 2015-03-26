@@ -56,9 +56,7 @@ impl <'a> Session<'a> {
 fn consume(stream: &mut TcpStream, byte_count: usize) -> Result<MsgSize, ClientErr> {
     let mut buffer = vec![4u8; byte_count];
     match stream.read(&mut buffer) {
-        Ok(_) => {
-            Ok(MsgSize::Buffer(Box::new(buffer)))
-        },
+        Ok(_) => Ok(MsgSize::Buffer(Box::new(buffer))),
         Err(e) => Err(ClientErr::IoErr(e))
     }
 }
