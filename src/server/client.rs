@@ -28,23 +28,23 @@ impl <'a> Session<'a> {
     fn handle_next_msg(&mut self) -> Result<(), ClientErr> {
         match self.next_msg() {
             Err(e) => Err(e),
-            Ok(msg_size) => match msg_size {
-                MsgSize::Json(json) => {
+            Ok(msg) => match msg {
+                Message::Json(json) => {
                     let peer_addr = self.stream.peer_addr().unwrap();
                     // @todo create an event struct and deserialize the json to it
                     println!("Sender: {}\n> {}\n", peer_addr, json);
                     Ok(())
                 },
-                _ => Err(ClientErr::Unknown("Invalid msg_size format given".to_string()))
+                _ => Err(ClientErr::Unknown("Invalid msg format given".to_string()))
             }
         }
     }
 
-    fn next_msg(&mut self) -> Result<MsgSize, ClientErr> {
+    fn next_msg(&mut self) -> Result<Message, ClientErr> {
         let msg_len: usize = match consume(self.stream, 4).and_then(parse_buffer).and_then(to_usize) {
-            Ok(msg_size) => match msg_size {
-                MsgSize::Value(len) => len,
-                _ => return Err(ClientErr::Unknown("Invalid msg_size format given to 'next_msg'".to_string()))
+            Ok(msg) => match msg {
+                Message::Length(len) => len,
+                _ => return Err(ClientErr::Unknown("Invalid msg format given to 'next_msg'".to_string()))
             },
             Err(e) => return Err(e)
         };
@@ -53,49 +53,49 @@ impl <'a> Session<'a> {
     }
 }
 
-fn consume(stream: &mut TcpStream, byte_count: usize) -> Result<MsgSize, ClientErr> {
+fn consume(stream: &mut TcpStream, byte_count: usize) -> Result<Message, ClientErr> {
     let mut buffer = vec![4u8; byte_count];
     match stream.read(&mut buffer) {
-        Ok(_) => Ok(MsgSize::Buffer(Box::new(buffer))),
+        Ok(_) => Ok(Message::Buffered(Box::new(buffer))),
         Err(e) => Err(ClientErr::IoErr(e))
     }
 }
 
-fn parse_buffer(msg_size: MsgSize) -> Result<MsgSize, ClientErr> {
-    match msg_size {
-        MsgSize::Buffer(ref vec) => match String::from_utf8(*vec.clone()) {
-            Ok(size) => Ok(MsgSize::String(size)),
+fn parse_buffer(msg: Message) -> Result<Message, ClientErr> {
+    match msg {
+        Message::Buffered(ref vec) => match String::from_utf8(*vec.clone()) {
+            Ok(size) => Ok(Message::String(size)),
             Err(e) => Err(ClientErr::ParseErr(e))
         },
-        _ => Err(ClientErr::Unknown("Unexpected msg_size format given to 'parse_buffer'.".to_string()))
+        _ => Err(ClientErr::Unknown("Unexpected msg format given to 'parse_buffer'.".to_string()))
     }
 }
 
-fn to_usize(msg_size: MsgSize) -> Result<MsgSize, ClientErr> {
-    match msg_size {
-        MsgSize::String(s) => match s.parse::<usize>() {
-            Ok(size) => Ok(MsgSize::Value(size)),
+fn to_usize(msg: Message) -> Result<Message, ClientErr> {
+    match msg {
+        Message::String(s) => match s.parse::<usize>() {
+            Ok(size) => Ok(Message::Length(size)),
             Err(e) => Err(ClientErr::ConvertErr(e))
         },
-        _ => Err(ClientErr::Unknown("Unexpected msg_size format given to 'to_usize'.".to_string()))
+        _ => Err(ClientErr::Unknown("Unexpected msg format given to 'to_usize'.".to_string()))
     }
 }
 
-fn to_json(msg_size: MsgSize) -> Result<MsgSize, ClientErr> {
-    match msg_size {
-        MsgSize::String(s) => match json::from_str(s.trim()) {
-            Ok(json) => Ok(MsgSize::Json(json)),
+fn to_json(msg: Message) -> Result<Message, ClientErr> {
+    match msg {
+        Message::String(s) => match json::from_str(s.trim()) {
+            Ok(json) => Ok(Message::Json(json)),
             Err(e) => Err(ClientErr::JsonErr(e))
         },
-        _ => Err(ClientErr::Unknown("Unexpected msg_size format given to 'to_json'.".to_string()))
+        _ => Err(ClientErr::Unknown("Unexpected msg format given to 'to_json'.".to_string()))
     }
 }
 
 #[derive(Debug)]
-enum MsgSize {
-    Buffer(Box<Vec<u8>>),
+enum Message {
+    Buffered(Box<Vec<u8>>),
+    Length(usize),
     String(String),
-    Value(usize),
     Json(Json)
 }
 
