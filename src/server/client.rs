@@ -43,7 +43,7 @@ impl <'a> Session<'a> {
     fn next_msg(&mut self) -> Result<MsgSize, ClientErr> {
         let msg_len: usize = match consume(self.stream, 4).and_then(parse_buffer).and_then(to_usize) {
             Ok(msg_size) => match msg_size {
-                MsgSize::Value(size) => size,
+                MsgSize::Value(len) => len,
                 _ => return Err(ClientErr::Unknown("Invalid msg_size format given to 'next_msg'".to_string()))
             },
             Err(e) => return Err(e)
