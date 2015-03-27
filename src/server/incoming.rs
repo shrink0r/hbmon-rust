@@ -3,7 +3,7 @@ use collections::string::FromUtf8Error;
 use std::num::ParseIntError;
 use std::io::Error;
 use std::io::prelude::*;
-use std::net::{TcpStream, SocketAddr};
+use std::net::{TcpStream, SocketAddr, Ipv4Addr};
 use serialize::json;
 use serialize::json::{Json, ParserError};
 use std::sync::mpsc::Sender;
@@ -11,17 +11,17 @@ use std::fmt;
 
 pub struct Session<'a> {
     pub stream: &'a mut TcpStream,
-    pub channel: &'a mut Sender<String>
+    pub channel: &'a mut Sender<Event>
 }
 
 impl <'a> Session<'a> {
     pub fn start(&mut self) {
         let ip = match self.stream.peer_addr().unwrap() {
-            SocketAddr::V4(addr) => addr.ip().to_string(),
+            SocketAddr::V4(addr) => addr.ip().clone(),
             _ => panic!("[session] Unable to resolve ip address for incoming tcp connection.")
         };
         loop {
-            match self.handle_next_msg() {
+            match self.handle_next_msg(ip.clone()) {
                 Ok(_) => continue,
                 Err(e) => {
                     println!("[session][{}] Processing msg didnt work: {:?}", ip, e);
@@ -31,11 +31,15 @@ impl <'a> Session<'a> {
         }
     }
 
-    fn handle_next_msg(&mut self) -> Result<(), ClientErr> {
+    fn handle_next_msg(&mut self, ip: Ipv4Addr) -> Result<(), ClientErr> {
         let msg = try!(self.next_msg());
         match msg {
             Message::Json(json) => {
-                match self.channel.send(json.to_string()) {
+                let event = Event {
+                    sender_ip: ip,
+                    message: json
+                };
+                match self.channel.send(event) {
                     Ok(_) => Ok(()),
                     _ => Err(ClientErr::Unknown("Failed to send message to monitor thread.".to_string()))
                 }
@@ -89,6 +93,12 @@ fn to_json(msg: Message) -> Result<Message, ClientErr> {
         },
         _ => Err(ClientErr::Unknown("Unexpected msg format given to 'to_json'.".to_string()))
     }
+}
+
+#[derive(Debug)]
+pub struct Event {
+    sender_ip: Ipv4Addr,
+    message: Json
 }
 
 #[derive(Debug)]

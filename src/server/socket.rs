@@ -1,7 +1,7 @@
 
 use std::net::{TcpListener, TcpStream, Ipv4Addr};
 use std::thread;
-use server::client::Session;
+use server::incoming::{Session, Event};
 use std::sync::mpsc::{channel, Sender, Receiver};
 
 pub struct Listener {
@@ -19,7 +19,7 @@ impl Listener {
     }
 
     pub fn listen(&self) {
-        let (tx, rx) = channel::<String>();
+        let (tx, rx) = channel::<Event>();
         self.spawn_monitor(rx);
         for stream in self.listener.incoming() {
             match stream {
@@ -29,7 +29,7 @@ impl Listener {
         }
     }
 
-    fn spawn_monitor(&self, channel: Receiver<String>) {
+    fn spawn_monitor(&self, channel: Receiver<Event>) {
         thread::spawn(move|| {
             loop {
                 match channel.recv() {
@@ -40,7 +40,7 @@ impl Listener {
         });
     }
 
-    fn spawn_client_session(&self, stream: TcpStream, channel: Sender<String>) {
+    fn spawn_client_session(&self, stream: TcpStream, channel: Sender<Event>) {
         thread::spawn(move|| {
             let mut stream = stream;
             let mut channel = channel;
