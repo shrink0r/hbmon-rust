@@ -35,11 +35,10 @@ impl <'a> Session<'a> {
         let msg = try!(self.next_msg());
         match msg {
             Message::Json(json) => {
-                let event = Event {
+                match self.channel.send(Event {
                     sender_ip: ip,
                     message: json
-                };
-                match self.channel.send(event) {
+                }) {
                     Ok(_) => Ok(()),
                     _ => Err(ClientErr::Unknown("Failed to send message to monitor thread.".to_string()))
                 }
