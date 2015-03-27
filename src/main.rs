@@ -1,16 +1,14 @@
 
 extern crate hbmon;
 
-use std::net::TcpListener;
+use std::net::Ipv4Addr;
 use hbmon::server::socket;
 
 fn main() {
-    println!("Starting server on port 8888\n");
+    let port = 8888;
+    let ip = Ipv4Addr::new(127, 0, 0, 1);
 
-    socket::Listener {
-        listener: match TcpListener::bind("127.0.0.1:8888") {
-            Ok(ref mut l) => l,
-            Err(e) => panic!("{}", e.to_string())
-        }
-    }.listen();
+    println!("Binding port {} to ip {} ...\n", port, ip);
+
+    socket::Listener::new(ip, port).listen();
 }

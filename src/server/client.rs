@@ -3,22 +3,28 @@ use collections::string::FromUtf8Error;
 use std::num::ParseIntError;
 use std::io::Error;
 use std::io::prelude::*;
-use std::net::TcpStream;
+use std::net::{TcpStream, SocketAddr};
 use serialize::json;
 use serialize::json::{Json, ParserError};
+use std::sync::mpsc::Sender;
 use std::fmt;
 
 pub struct Session<'a> {
-    pub stream: &'a mut TcpStream
+    pub stream: &'a mut TcpStream,
+    pub channel: &'a mut Sender<String>
 }
 
 impl <'a> Session<'a> {
     pub fn start(&mut self) {
+        let ip = match self.stream.peer_addr().unwrap() {
+            SocketAddr::V4(addr) => addr.ip().to_string(),
+            _ => panic!("[session] Unable to resolve ip address for incoming tcp connection.")
+        };
         loop {
             match self.handle_next_msg() {
                 Ok(_) => continue,
                 Err(e) => {
-                    println!("Processing msg didnt work: {:?}", e);
+                    println!("[session][{}] Processing msg didnt work: {:?}", ip, e);
                     break
                 }
             }
@@ -29,10 +35,10 @@ impl <'a> Session<'a> {
         let msg = try!(self.next_msg());
         match msg {
             Message::Json(json) => {
-                let peer_addr = self.stream.peer_addr().unwrap();
-                // @todo deserialize the json to an event struct and send it to the monitor thread
-                println!("Sender: {}\n> {}\n", peer_addr, json);
-                Ok(())
+                match self.channel.send(json.to_string()) {
+                    Ok(_) => Ok(()),
+                    _ => Err(ClientErr::Unknown("Failed to send message to monitor thread.".to_string()))
+                }
             },
             _ => Err(ClientErr::Unknown("Invalid msg format given to 'handle_next_msg'".to_string()))
         }
