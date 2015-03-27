@@ -13,7 +13,7 @@ impl Listener {
         Listener {
             listener: match TcpListener::bind(format!("{}:{}", ip, port).as_slice()) {
                 Ok(listener) => listener,
-                Err(e) => panic!("{}", e.to_string())
+                Err(e) => panic!("{:?}", e)
             }
         }
     }

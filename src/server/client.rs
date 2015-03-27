@@ -110,10 +110,10 @@ enum ClientErr {
 impl fmt::Debug for ClientErr {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         let msg = match *self {
-            ClientErr::ParseErr(ref e) => e.to_string(),
-            ClientErr::IoErr(ref e) => e.to_string(),
-            ClientErr::ConvertErr(ref e) => e.to_string(),
-            ClientErr::JsonErr(ref e) => e.to_string(),
+            ClientErr::ParseErr(ref e) => format!("{:?}", e),
+            ClientErr::IoErr(ref e) => format!("{:?}", e),
+            ClientErr::ConvertErr(ref e) => format!("{:?}", e),
+            ClientErr::JsonErr(ref e) => format!("{:?}", e),
             ClientErr::Unknown(ref s) => s.to_string()
         };
         fmt.debug_struct("ClientErr").field("err", &msg).finish()
